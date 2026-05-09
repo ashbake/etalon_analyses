@@ -97,7 +97,7 @@ def plot_summary(all_rv_filename, orders_to_run, label='HISPEC Etalon', color='r
     ax1.plot(mjd_all, 1000*(rv_cal_all - parvi_offset),  '^', c='purple',    markeredgecolor='black',     alpha=0.8, label='PARVI Etalon')
     ax1.set_xlabel('MJD [days]')
     ax1.set_ylabel('RV [m/s]')
-    ax1.set_title(f'{tag} \nOrders {np.min(orders_to_run)} to {np.max(orders_to_run)}')
+    ax1.set_title(f'{color} \nOrders {np.min(orders_to_run)} to {np.max(orders_to_run)}')
     ax1.grid()
     ax1.legend()
 
@@ -174,7 +174,7 @@ def plot_orders(all_rvorders_filename, orders_to_run, color='red', output_dir='.
     plt.ylabel('Slope')
     plt.title('Per-order slope of RV residual vs. mean RV')
     plt.grid()
-    plt.savefig(os.path.join(output_dir, f'running_{tag}etalon_rvs_byorder.png'))
+    plt.savefig(os.path.join(output_dir, f'running_{color}etalon_rvs_byorder.png'))
 
 
 if __name__=='__main__':
