@@ -5,6 +5,7 @@ import glob, sys
 
 import ccf
 
+
 def load_parvi_data(filename):
     """
     load filename of parvi spectral file
@@ -33,10 +34,10 @@ def load_parvi_data(filename):
 
     return [wave_sci, flux_sci, err_sci], [wave_cal, flux_cal, err_cal]
 
-def load_wavelength_array():
-    """loads old altair file to get old wavelength solution which shouldn't need to be accurate here"""
+def load_wavelength_array(filename = '/Altair_R02_20251017031228_deg0_sp.fits'):
+    """loads old altair file to get old wavelength solution which shouldn't need to be accurate here
+    because parvi data doesn't always ahve wavelengths stored (TODO to fix this)"""
     #filename = '/Users/ashleybaker/Documents/DLC/_data/Altair/Altair_R02_20251017031228_deg0_sp.fits'
-    filename = './Altair_R02_20251017031228_deg0_sp.fits'
     test_sci, test_cal = load_parvi_data(filename)
 
     waves_sci = test_sci[0]
@@ -133,10 +134,10 @@ def load_master_mask(sci_file='parvi_blueetalon_ccf_mask_sci.csv', cal_file='par
 
     return mask_sci, mask_cal
 
-def run_ccf(filename, mask_sci, mask_cal, iorder=10):
+def run_ccf(filename, mask_sci, mask_cal, iorder=10, wavelength_file='/Altair_R02_20251017031228_deg0_sp.fits'):
     # load file and wave array
     sci, cal = load_parvi_data(filename) # each is indexed wave, flux, err
-    w_sci, w_cal = load_wavelength_array()
+    w_sci, w_cal = load_wavelength_array(wavelength_file)
 
     # define mask parameters
     R = 700000

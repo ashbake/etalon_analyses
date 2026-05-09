@@ -1,7 +1,7 @@
 import numpy as np
 import matplotlib.pylab as plt
 from astropy.io import fits
-import glob, sys, argparse
+import glob, sys, argparse, os
 
 plt.ion()
 
@@ -15,12 +15,15 @@ DATETAG_default = '20260423'
 
 CONFIGS = {
     'blue': {
-        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/EtalonBlue/PARVI_blueEtalon_data/EtalonEtalon/spectra/',
+        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/EtalonBlue/Parvi_drift_analysis/PARVI_blueEtalon_data/EtalonEtalon/spectra/',
         'mask_sci':   'parvi_blueetalon_ccf_mask_sci.csv',
         'mask_cal':   'parvi_blueetalon_ccf_mask_cal.csv',
         'rv_csv':     'running_blueetalon_rvs.csv',
         'orders_csv': 'running_blueetalon_rvs_byorder.csv',
         'label':      'HISPEC Blue Etalon',
+        'wavelength_file': './PARVI_blueEtalon_data/Altair_R02_20251017031228_deg0_sp.fits',
+        'output': 'outputs',
+        'orders_to_run': np.arange(4,40)
     },
     'red': {
         'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/EtalonRed/PARVI_redEtalon_data/EtalonEtalon/spectra/',
@@ -29,6 +32,9 @@ CONFIGS = {
         'rv_csv':     'running_redetalon_rvs.csv',
         'orders_csv': 'running_redetalon_rvs_byorder.csv',
         'label':      'HISPEC Red Etalon',
+        'wavelength_file': './Altair_R02_20251017031228_deg0_sp.fits',
+        'output': 'outputs',
+        'orders_to_run': np.arange(30,43)
     },
 }
 ##############
@@ -43,7 +49,7 @@ def save_rv_results(filename, rvs, rvs_cal, outfile='running_etalon_rvs.csv'):
     rv_mean     = np.nanmean(rvs)
     rv_cal_mean = np.nanmean(rvs_cal)
 
-    import os, csv
+    import csv
     write_header = not os.path.exists(outfile)
     with open(outfile, 'a', newline='') as f:
         writer = csv.writer(f)
@@ -60,7 +66,7 @@ def save_rv_orders(filename, rvs, rvs_cal, orders, outfile='running_etalon_rvs_b
 
     rv_diff = rvs - rvs_cal  # shape: (n_orders,)
 
-    import os, csv
+    import csv
     write_header = not os.path.exists(outfile)
     with open(outfile, 'a', newline='') as f:
         writer = csv.writer(f)
@@ -70,7 +76,7 @@ def save_rv_orders(filename, rvs, rvs_cal, orders, outfile='running_etalon_rvs_b
 
     return outfile
 
-def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='HISPEC Etalon', tag='etalon'):
+def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='HISPEC Etalon', tag='etalon', output_dir='.'):
     """Load save data and plot all RVs"""
     summary    = np.genfromtxt(all_rv_filename,         delimiter=',', names=True, dtype=None, encoding=None)
     orders_csv = np.genfromtxt(all_rvorders_filename, delimiter=',', names=True, dtype=None, encoding=None)
@@ -94,7 +100,7 @@ def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='
     plt.title('HISPEC - PARVI per order (mean-subtracted)')
     plt.grid()
     plt.legend()
-    plt.savefig(f'running_{tag}etalon_rvs_byorder.png')
+    plt.savefig(os.path.join(output_dir, f'running_{tag}etalon_rvs_byorder.png'))
 
     # ORDER TEST
     plt.figure()
@@ -124,7 +130,7 @@ def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='
     plt.figure()
     slope_orders, slopes = zip(*order_slopes)
     plt.scatter(slope_orders, slopes, color=rainbow)
-    plt.plot(np.array(slope_orders), np.array(slopes), color=rainbow)
+    plt.plot(np.array(slope_orders), np.array(slopes))
     plt.xlabel('Order index')
     plt.ylabel('Slope')
     plt.title('Per-order slope of RV residual vs. mean RV')
@@ -161,7 +167,7 @@ def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='
     ax2.grid()
 
     fig.tight_layout()
-    fig.savefig(f'running_{tag}etalon_rvs.png')
+    fig.savefig(os.path.join(output_dir, f'running_{tag}etalon_rvs.png'))
 
 if __name__=='__main__':
     # pick date to run!
@@ -171,35 +177,36 @@ if __name__=='__main__':
     args = parser.parse_args()
     DATETAG = args.datetag
     cfg = CONFIGS[args.color]
+    os.makedirs(cfg['output'], exist_ok=True)
 
     # glob all files and select which ones want to include here
-    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))
+    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))[0:2]
     nfiles = len(files)
     print(f'Loaded {nfiles} files')
 
-    # make/load mask for etalon - parvi etalon file type
+    # make/LOAD MASK for etalon - parvi etalon file type
     #make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True) # ONLY MAKE MASTER ONCE
     mask_sci, mask_cal = load_master_mask(sci_file=cfg['mask_sci'], cal_file=cfg['mask_cal'])
     
-    # initiate arrays
-    orders_to_run = np.arange(4,40)
-    rvs = np.zeros((len(files), len(orders_to_run)))
-    rvs_cal = np.zeros((len(files), len(orders_to_run)))
-
-    # run through all files and orders
+    # RUN through all files and orders
     parallelize='joblib' # joblib seems to do best!
     if parallelize == 'no':
+        rvs = np.zeros((len(files), len(cfg['orders_to_run'])))
+        rvs_cal = np.zeros((len(files), len(cfg['orders_to_run'])))
         for i, file in enumerate(files):
-            rvs[i], rvs_cal[i] = run_ccf(file, mask_sci, mask_cal, iorder=43)
+            rvs[i], rvs_cal[i] = run_ccf(file, mask_sci, mask_cal, iorder=43,wavelength_file=cfg['wavelength_file'])
     elif parallelize == 'pool':
+        rvs = np.zeros((len(files), len(cfg['orders_to_run'])))
+        rvs_cal = np.zeros((len(files), len(cfg['orders_to_run'])))
+
         from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
         for ifile, file in enumerate(files):
             print(ifile)
             # Use ProcessPoolExecutor instead if run_ccf is CPU-bound (pure Python/numpy)
             #with ThreadPoolExecutor() as executor:
             with ProcessPoolExecutor() as executor:
-                futures = {executor.submit(run_ccf, file, mask_sci, mask_cal, iorder=iorder): i 
-                        for i, iorder in enumerate(orders_to_run)}
+                futures = {executor.submit(run_ccf, file, mask_sci, mask_cal, iorder=iorder,wavelength_file=cfg['wavelength_file']): i 
+                        for i, iorder in enumerate(cfg['orders_to_run'])}
                 
                 for future in as_completed(futures):
                     i = futures[future]
@@ -207,31 +214,30 @@ if __name__=='__main__':
     elif parallelize =='joblib':
         from joblib import Parallel, delayed
         from tqdm import tqdm
-
+        if nfiles==0: pass
         jobs = [
             (file, iorder)
             for file in files
-            for iorder in orders_to_run   
+            for iorder in cfg['orders_to_run']   
         ]
 
         results = Parallel(n_jobs=10)(
-            delayed(run_ccf)(file, mask_sci, mask_cal, iorder=iorder)
+            delayed(run_ccf)(file, mask_sci, mask_cal, iorder=iorder,wavelength_file=cfg['wavelength_file'])
             for file, iorder in tqdm(jobs, desc="CCF", total=len(jobs))
         )
 
         # Reshape results into (n_iorders, n_files)
-        results = np.array(results).reshape( len(files),len(orders_to_run), 2)
+        results = np.array(results).reshape( len(files),len(cfg['orders_to_run']), 2)
         rvs     = results[:, :, 0]  # shape: (n_files, n_iorders)
         rvs_cal = results[:, :, 1]
 
     # SAVE TO FILE (without any offset applied)
     for i, file in enumerate(files):
-        all_rv_filename = save_rv_results(file, rvs[i], rvs_cal[i], outfile=cfg['rv_csv'])
-        all_rvorders_filename = save_rv_orders(file, rvs[i], rvs_cal[i], orders_to_run, outfile=cfg['orders_csv'])
-
+        all_rv_filename = save_rv_results(file, rvs[i], rvs_cal[i], outfile=os.path.join(cfg['output'], cfg['rv_csv']))
+        all_rvorders_filename = save_rv_orders(file, rvs[i], rvs_cal[i], cfg['orders_to_run'], outfile=os.path.join(cfg['output'], cfg['orders_csv']))
 
     # LOAD FROM FILES AND UPDATE PLOTS
-    if len(files) > 1:
-        load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run,
-                      label=cfg['label'], tag=args.color)
+    if nfiles > 1:
+        load_and_plot(all_rv_filename, all_rvorders_filename, cfg['orders_to_run'],
+                      label=cfg['label'], tag=args.color, output_dir=cfg['output'])
 
