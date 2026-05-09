@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pylab as plt
 from astropy.io import fits
 import glob, sys, argparse, os, warnings
+from datetime import datetime,timezone
 
 plt.ion()
 
@@ -14,7 +15,7 @@ warnings.filterwarnings('ignore', message='Mean of empty slice', category=Runtim
 
 ##############
 # RUN SETTINGS
-DATETAG_default = '20260423'
+DATETAG_default = datetime.now(timezone.utc).strftime("%Y%m%d")
 
 CONFIGS = {
     'blue': {
@@ -37,7 +38,7 @@ CONFIGS = {
         'label':      'HISPEC Red Etalon',
         'wavelength_file': './Altair_R02_20251017031228_deg0_sp.fits',
         'output': 'outputs',
-        'orders_to_run': np.arange(30,43)
+        'orders_to_run': np.arange(32,43)
     },
 }
 ##############
@@ -79,22 +80,57 @@ def save_rv_orders(filename, rvs, rvs_cal, orders, outfile='running_etalon_rvs_b
 
     return outfile
 
-def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='HISPEC Etalon', tag='etalon', output_dir='.'):
-    """Load save data and plot all RVs"""
-    summary    = np.genfromtxt(all_rv_filename,         delimiter=',', names=True, dtype=None, encoding=None)
+def plot_summary(all_rv_filename, orders_to_run, label='HISPEC Etalon', color='red', output_dir='.'):
+    """Load summary CSV and plot mean RV sci and cal vs time."""
+    summary = np.genfromtxt(all_rv_filename, delimiter=',', names=True, dtype=None, encoding=None)
+
+    mjd_all    = np.atleast_1d(summary['mjd']).astype(float)
+    rv_sci_all = np.atleast_1d(summary['rv_sci_mean_kms']).astype(float)
+    rv_cal_all = np.atleast_1d(summary['rv_cal_mean_kms']).astype(float)
+    rv_diff_all = rv_sci_all - rv_cal_all
+
+    hispec_offset = np.nanmean(rv_sci_all)
+    parvi_offset  = np.nanmean(rv_cal_all)
+
+    fig, [ax1,ax2] = plt.subplots(2,1 , figsize=(10, 6), num='nightly_summary')
+    ax1.plot(mjd_all, 1000*(rv_sci_all - hispec_offset), 'o', c=color, markeredgecolor=color, alpha=0.8, label=label)
+    ax1.plot(mjd_all, 1000*(rv_cal_all - parvi_offset),  '^', c='purple',    markeredgecolor='black',     alpha=0.8, label='PARVI Etalon')
+    ax1.set_xlabel('MJD [days]')
+    ax1.set_ylabel('RV [m/s]')
+    ax1.set_title(f'{tag} \nOrders {np.min(orders_to_run)} to {np.max(orders_to_run)}')
+    ax1.grid()
+    ax1.legend()
+
+    # DIFFERENTIAL RV VS TIME
+    rv_diff   = 1000 * (rv_diff_all - np.nanmean(rv_diff_all))
+    time_avg  = 120
+    bin_width = time_avg / 1440
+    bin_idx   = np.floor(mjd_all / bin_width).astype(int)
+    bin_ids   = np.unique(bin_idx)
+    t_binned  = np.array([np.nanmean(mjd_all[bin_idx == b]) for b in bin_ids])
+    rv_binned = np.array([np.nanmean(rv_diff[bin_idx == b])    for b in bin_ids])
+
+    ax2.plot(mjd_all, rv_diff, 'ko', alpha=0.2)
+    ax2.plot(t_binned, rv_binned, 's', c=color, markeredgecolor='black', ms=6, label=f'{time_avg}-min bin')
+    ax2.set_xlabel('MJD [days]')
+    ax2.set_ylabel('HISPEC - PARVI [m/s]')
+    ax2.legend()
+    ax2.grid()
+    fig.tight_layout()
+    fig.savefig(os.path.join(output_dir, f'running_{color}etalon_rvs.png'))
+
+
+def plot_orders(all_rvorders_filename, orders_to_run, color='red', output_dir='.'):
+    """Load per-order CSV and plot order-to-order, order test, slopes, and differential RV."""
     orders_csv = np.genfromtxt(all_rvorders_filename, delimiter=',', names=True, dtype=None, encoding=None)
 
-    mjd_all     = np.atleast_1d(summary['mjd']).astype(float)
-    rv_sci_all  = np.atleast_1d(summary['rv_sci_mean_kms']).astype(float)
-    rv_cal_all  = np.atleast_1d(summary['rv_cal_mean_kms']).astype(float)
+    mjd_orders  = np.atleast_1d(orders_csv['mjd']).astype(float)
     rv_diff_all = np.column_stack([np.atleast_1d(orders_csv[f'order_{o}']).astype(float) for o in orders_to_run])
 
-    mjd_orders = np.atleast_1d(orders_csv['mjd']).astype(float)
-
-    # ORDER to ORDER
-    plt.figure('order_to_order')
-    # sort mjd_orders
     isort_t = np.argsort(mjd_orders)
+
+    # ORDER TO ORDER
+    plt.figure('order_to_order')
 
     for i, iorder in enumerate(orders_to_run):
         plt.plot(mjd_orders[isort_t], rv_diff_all[:, i][isort_t] - np.nanmean(rv_diff_all[:, i]), '-', alpha=0.7, label=f'order {iorder}')
@@ -103,7 +139,7 @@ def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='
     plt.title('HISPEC - PARVI per order (mean-subtracted)')
     plt.grid()
     plt.legend()
-    plt.savefig(os.path.join(output_dir, f'running_{tag}etalon_rvs_byorder.png'))
+    plt.savefig(f'running_{color}etalon_rvs_byorder.png')
 
     # ORDER TEST
     plt.figure()
@@ -130,47 +166,16 @@ def load_and_plot(all_rv_filename, all_rvorders_filename, orders_to_run, label='
         else:
             order_slopes.append((iorder, np.nan))
 
-    plt.figure()
+    plt.figure('order_slopes')
     slope_orders, slopes = zip(*order_slopes)
     plt.scatter(slope_orders, slopes, color=rainbow)
-    plt.plot(np.array(slope_orders), np.array(slopes))
+    #plt.plot(np.array(slope_orders), np.array(slopes), color=rainbow)
     plt.xlabel('Order index')
     plt.ylabel('Slope')
     plt.title('Per-order slope of RV residual vs. mean RV')
     plt.grid()
-    
+    plt.savefig(os.path.join(output_dir, f'running_{tag}etalon_rvs_byorder.png'))
 
-    # DEFINE OFFSETS for plotting since we'll make night to night plots
-    hispec_offset = np.nanmean(rv_sci_all)
-    parvi_offset = np.nanmean(rv_cal_all)
-
-    # NIGHT TO NIGHT PLOT
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 6), sharex=True, num='nightly')
-    ax1.plot(mjd_all, 1000*(rv_sci_all - hispec_offset), 'o', c='steelblue', markeredgecolor='steelblue',  alpha=0.8, label=label)
-    ax1.plot(mjd_all, 1000*(rv_cal_all - parvi_offset),  '^', c='purple', markeredgecolor='black', alpha=0.8, label='PARVI Etalon')
-    ax1.set_ylabel('RV [m/s]')
-    ax1.set_title(f'Orders {np.min(orders_to_run)} to {np.max(orders_to_run)}')
-    ax1.grid()
-    ax1.legend()
-
-    #rv_diff   = 1000 * (rv_sci_all - rv_cal_all - (hispec_offset - parvi_offset))
-    rv_diff = 1000 * (np.nanmean(rv_diff_all[:, 8:-2], axis=1) - np.nanmean(rv_diff_all[:, 8:-2]))
-    time_avg = 120
-    bin_width = time_avg / 1440  # 30 minutes in days
-    bin_idx   = np.floor(mjd_orders / bin_width).astype(int)
-    bin_ids   = np.unique(bin_idx)
-    t_binned  = np.array([np.nanmean(mjd_orders[bin_idx == b]) for b in bin_ids])
-    rv_binned = np.array([np.nanmean(rv_diff[bin_idx == b]) for b in bin_ids])
-
-    ax2.plot(mjd_orders, rv_diff, 'ko', alpha=0.2)
-    ax2.plot(t_binned, rv_binned, 's',c='steelblue', markeredgecolor='black', ms=6, label=f'{time_avg}-min bin')
-    ax2.set_xlabel('MJD [days]')
-    ax2.set_ylabel('HISPEC - PARVI [m/s]')
-    ax2.legend()
-    ax2.grid()
-
-    fig.tight_layout()
-    fig.savefig(os.path.join(output_dir, f'running_{tag}etalon_rvs.png'))
 
 if __name__=='__main__':
     # pick date to run!
@@ -182,11 +187,14 @@ if __name__=='__main__':
     cfg = CONFIGS[args.color]
     os.makedirs(cfg['output'], exist_ok=True)
 
+    if (cfg['color'] == 'blue') and DATETAG.startswith('202605'):
+        raise ValueError('blue etalon was before 20260501, red etalon was after')
+    
     # glob all files and select which ones want to include here
-    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))[0:2]
+    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))
     nfiles = len(files)
-    print(f'Loaded {nfiles} files')
-
+    print(f'Loaded {nfiles} files for date {DATETAG} for the {args.color} etalon')
+    
     # make/LOAD MASK for etalon - parvi etalon file type
     #make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True) # ONLY MAKE MASTER ONCE
     mask_sci, mask_cal = load_master_mask(sci_file=cfg['mask_sci'], cal_file=cfg['mask_cal'])
@@ -241,6 +249,6 @@ if __name__=='__main__':
 
     # LOAD FROM FILES AND UPDATE PLOTS
     if nfiles > 1:
-        load_and_plot(all_rv_filename, all_rvorders_filename, cfg['orders_to_run'],
-                      label=cfg['label'], tag=args.color, output_dir=cfg['output'])
+        plot_summary(all_rv_filename, cfg['orders_to_run'], label=cfg['label'], color=args.color,output_dir=cfg['output'])
+        plot_orders(all_rvorders_filename, cfg['orders_to_run'], color=args.color,output_dir=cfg['output'])
 
