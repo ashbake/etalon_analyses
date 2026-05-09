@@ -187,14 +187,14 @@ if __name__=='__main__':
     cfg = CONFIGS[args.color]
     os.makedirs(cfg['output'], exist_ok=True)
 
-    if (cfg['color'] == 'blue') and DATETAG.startswith('202605'):
+    if (args.color == 'blue') and DATETAG.startswith('202605'):
         raise ValueError('blue etalon was before 20260501, red etalon was after')
     
     # glob all files and select which ones want to include here
     files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))
     nfiles = len(files)
     print(f'Loaded {nfiles} files for date {DATETAG} for the {args.color} etalon')
-    
+
     # make/LOAD MASK for etalon - parvi etalon file type
     #make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True) # ONLY MAKE MASTER ONCE
     mask_sci, mask_cal = load_master_mask(sci_file=cfg['mask_sci'], cal_file=cfg['mask_cal'])
