@@ -159,7 +159,7 @@ def run_ccf(filename, mask_sci, mask_cal, iorder=10, wavelength_file='/Altair_R0
             # fit ccf for rv
             rv_fit_sci, v_fit, y_fit, xi2 = ccf.fit_gaussian_to_ccf_2(velocity_loop, 1 - ccf_out_sci/np.max(ccf_out_sci), 0.1, velocity_halfrange_to_fit=5.0,stddev_guess=1)
             rv_fit_cal, _, _, _ = ccf.fit_gaussian_to_ccf_2(velocity_loop, 1 - ccf_out_cal/np.max(ccf_out_cal), 0.1, velocity_halfrange_to_fit=5.0,stddev_guess=1)
-        except ValueError:
+        except:
             return np.nan, np.nan
     else:
         return np.nan, np.nan
