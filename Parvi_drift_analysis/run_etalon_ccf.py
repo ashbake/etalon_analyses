@@ -1,11 +1,14 @@
 import numpy as np
 import matplotlib.pylab as plt
 from astropy.io import fits
-import glob, sys, argparse, os
+import glob, sys, argparse, os, warnings
 
 plt.ion()
 
 from parvi_ccf_tools import *
+
+warnings.filterwarnings('ignore', message='All-NaN slice encountered', category=RuntimeWarning)
+warnings.filterwarnings('ignore', message='Mean of empty slice', category=RuntimeWarning)
 
 # description of parvi data
 
