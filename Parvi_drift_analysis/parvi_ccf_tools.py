@@ -45,7 +45,7 @@ def load_wavelength_array(filename = '/Altair_R02_20251017031228_deg0_sp.fits'):
 
     return waves_sci, waves_cal
 
-def make_master_mask(files, save_to_file=True, diagnostics_on=False, file_tag='parvi_blueetalon_ccf_mask'):
+def make_master_mask(files, save_to_file=True, diagnostics_on=False, file_tag='parvi_blueetalon_ccf_mask', wavelength_file='/Altair_R02_20251017031228_deg0_sp.fits'):
     """ Make mask for etalon for each order and optionally save to file
 
     input:
@@ -70,7 +70,7 @@ def make_master_mask(files, save_to_file=True, diagnostics_on=False, file_tag='p
     norders, npix = np.shape(sci_master)
 
     # load wavelength
-    w_sci, w_cal = load_wavelength_array()
+    w_sci, w_cal = load_wavelength_array(wavelength_file)
     
     # Peak finder time
     from scipy.signal import find_peaks
@@ -89,22 +89,40 @@ def make_master_mask(files, save_to_file=True, diagnostics_on=False, file_tag='p
     all_weights_cal ={}
     norm_factor=100000 # so weights are between 0 and 1 for easier reading
     for iorder in np.arange(norders):
+        if iorder==0: # for some reason order 0 doesnt have wave vals
+            continue
         # these peaking finding params were optimized
-        ipeaks, _ = find_peaks(sci_master[iorder], prominence=0.5*np.nanmedian(sci_master[iorder]), width=3, distance=10)
-        ipeaks_cal, _ = find_peaks(cal_master[iorder], prominence=0.5*np.nanmedian(cal_master[iorder]), width=3, distance=10)
+        ipeaks, _ = find_peaks(sci_master[iorder], prominence=10*np.nanmedian(sci_master[iorder]), width=3, distance=10)
+        ipeaks_cal, _ = find_peaks(cal_master[iorder], prominence=10*np.nanmedian(cal_master[iorder]), width=3, distance=10)
 
-        # save to dictionaries for each iorder
-        all_cens[iorder]    = w_sci[iorder][ipeaks]
-        all_weights[iorder] = np.sqrt(sci_master[iorder][ipeaks] / norm_factor) # sqrt to go to SNR scale
-        all_cens_cal[iorder]    = w_cal[iorder][ipeaks_cal]
-        all_weights_cal[iorder] = np.sqrt(cal_master[iorder][ipeaks_cal] / norm_factor) # sqrt to go to SNR scale
+        # skip this order if mean of peaks is <SNR=100
+        # Else save the centers and weights
+        if len(ipeaks) > 0:
+            if np.nanmedian(np.sqrt(sci_master[iorder][ipeaks])) < 100:
+                all_cens[iorder]    = []
+                all_weights[iorder] = []
+            else:
+                # save to dictionaries for each iorder
+                all_cens[iorder]    = w_sci[iorder][ipeaks]
+                weights = np.sqrt(np.maximum(sci_master[iorder][ipeaks], 0) / norm_factor)
+                weights[np.isnan(weights)] = 0
+                all_weights[iorder] = weights
+                if save_to_file:
+                    for i in np.arange(len(ipeaks)):
+                        fsci.write(f'{iorder},{all_cens[iorder][i]},{all_weights[iorder][i]}\n')
 
-        # save to file
-        if save_to_file:
-            for i in np.arange(len(ipeaks)):
-                fsci.write(f'{iorder},{all_cens[iorder][i]},{all_weights[iorder][i]}\n')
-            for i in np.arange(len(ipeaks_cal)):
-                fcal.write(f'{iorder},{all_cens_cal[iorder][i]},{all_weights_cal[iorder][i]}\n')
+        if len(ipeaks_cal) > 0:
+            if np.nanmedian(np.sqrt(cal_master[iorder][ipeaks_cal])) < 100:
+                all_cens_cal[iorder]    = []
+                all_weights_cal[iorder] = []
+            else:
+                all_cens_cal[iorder]    = w_cal[iorder][ipeaks_cal]
+                weights_cal = np.sqrt(np.maximum(cal_master[iorder][ipeaks_cal], 0) / norm_factor)
+                weights_cal[np.isnan(weights_cal)] = 0
+                all_weights_cal[iorder] = weights_cal
+                # save to file
+                for i in np.arange(len(ipeaks_cal)):
+                    fcal.write(f'{iorder},{all_cens_cal[iorder][i]},{all_weights_cal[iorder][i]}\n')
 
     # plot if need to diagnose peak finding issue
     if diagnostics_on:
@@ -154,15 +172,25 @@ def run_ccf(filename, mask_sci, mask_cal, iorder=10, wavelength_file='/Altair_R0
     if len(mask_sci_order['cen'].values) > 2:
         try:
             ccf_out_sci, _ = ccf.ccf_make(w_sci[iorder], sci[1][iorder], mask_sci_order['cen'].values, mask_wid*10,  mask_sci_order['weight'].values, velocity_loop, R=R,nsamp=nsamp)
-            ccf_out_cal, _ = ccf.ccf_make(w_cal[iorder], cal[1][iorder],  mask_cal_order['cen'].values, mask_wid*10,  mask_cal_order['weight'].values, velocity_loop, R=R,nsamp=nsamp)
-
-            # fit ccf for rv
             rv_fit_sci, v_fit, y_fit, xi2 = ccf.fit_gaussian_to_ccf_2(velocity_loop, 1 - ccf_out_sci/np.max(ccf_out_sci), 0.1, velocity_halfrange_to_fit=5.0,stddev_guess=1)
+        except:
+            rv_fit_sci = np.nan
+            print(f'error in CCF of sci for order {iorder}')
+    else:
+        rv_fit_sci = np.nan
+        #print(f'no mask for sci in order {iorder}')
+
+    # CAL  
+    if len(mask_cal_order['cen'].values) > 2:
+        try:
+            ccf_out_cal, _ = ccf.ccf_make(w_cal[iorder], cal[1][iorder], mask_cal_order['cen'].values, mask_wid*10,  mask_cal_order['weight'].values, velocity_loop, R=R,nsamp=nsamp)
             rv_fit_cal, _, _, _ = ccf.fit_gaussian_to_ccf_2(velocity_loop, 1 - ccf_out_cal/np.max(ccf_out_cal), 0.1, velocity_halfrange_to_fit=5.0,stddev_guess=1)
         except:
-            return np.nan, np.nan
+            rv_fit_cal = np.nan
+            print(f'error in CCF of cal for order {iorder}')
     else:
-        return np.nan, np.nan
-    
+        rv_fit_cal = np.nan
+        #print(f'no mask for cal in order {iorder}')
+
     return rv_fit_sci, rv_fit_cal
 

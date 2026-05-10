@@ -15,30 +15,30 @@ warnings.filterwarnings('ignore', message='Mean of empty slice', category=Runtim
 
 ##############
 # RUN SETTINGS
-DATETAG_default = datetime.now(timezone.utc).strftime("%Y%m%d")
+DATETAG_default = '2026050*' #datetime.now(timezone.utc).strftime("%Y%m%d")
 
 CONFIGS = {
     'blue': {
-        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/EtalonBlue/Parvi_drift_analysis/PARVI_blueEtalon_data/EtalonEtalon/spectra/',
+        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_blueEtalon_data/EtalonEtalon/spectra/',
         'mask_sci':   'parvi_blueetalon_ccf_mask_sci.csv',
         'mask_cal':   'parvi_blueetalon_ccf_mask_cal.csv',
         'rv_csv':     'running_blueetalon_rvs.csv',
         'orders_csv': 'running_blueetalon_rvs_byorder.csv',
         'label':      'HISPEC Blue Etalon',
-        'wavelength_file': './PARVI_blueEtalon_data/Altair_R02_20251017031228_deg0_sp.fits',
+        'wavelength_file': '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/Altair_R02_20251017031228_deg0_sp.fits',
         'output': 'outputs',
         'orders_to_run': np.arange(4,40)
     },
     'red': {
-        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/EtalonRed/PARVI_redEtalon_data/EtalonEtalon/spectra/',
+        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/EtalonEtalon/spectra/',
         'mask_sci':   'parvi_redetalon_ccf_mask_sci.csv',
         'mask_cal':   'parvi_redetalon_ccf_mask_cal.csv',
         'rv_csv':     'running_redetalon_rvs.csv',
         'orders_csv': 'running_redetalon_rvs_byorder.csv',
         'label':      'HISPEC Red Etalon',
-        'wavelength_file': './Altair_R02_20251017031228_deg0_sp.fits',
+        'wavelength_file': '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/Altair_R02_20251017031228_deg0_sp.fits',
         'output': 'outputs',
-        'orders_to_run': np.arange(32,43)
+        'orders_to_run': np.arange(23,43)
     },
 }
 ##############
@@ -117,7 +117,7 @@ def plot_summary(all_rv_filename, orders_to_run, label='HISPEC Etalon', color='r
     ax2.legend()
     ax2.grid()
     fig.tight_layout()
-    fig.savefig(os.path.join(output_dir, f'running_{color}etalon_rvs.png'))
+    fig.savefig(all_rv_filename.replace('csv', 'png'))
 
 
 def plot_orders(all_rvorders_filename, orders_to_run, color='red', output_dir='.'):
@@ -174,14 +174,14 @@ def plot_orders(all_rvorders_filename, orders_to_run, color='red', output_dir='.
     plt.ylabel('Slope')
     plt.title('Per-order slope of RV residual vs. mean RV')
     plt.grid()
-    plt.savefig(os.path.join(output_dir, f'running_{color}etalon_rvs_byorder.png'))
+    plt.savefig(all_rvorders_filename.replace('csv','png'))
 
 
 if __name__=='__main__':
     # pick date to run!
     parser = argparse.ArgumentParser()
     parser.add_argument('--datetag', default=DATETAG_default)
-    parser.add_argument('--color', default='blue', choices=['blue', 'red'])
+    parser.add_argument('--color', default='red', choices=['blue', 'red'])
     args = parser.parse_args()
     DATETAG = args.datetag
     cfg = CONFIGS[args.color]
@@ -196,33 +196,17 @@ if __name__=='__main__':
     print(f'Loaded {nfiles} files for date {DATETAG} for the {args.color} etalon')
 
     # make/LOAD MASK for etalon - parvi etalon file type
-    #make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True) # ONLY MAKE MASTER ONCE
+    make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True, file_tag=cfg['mask_sci'].strip('_sci.csv'), wavelength_file=cfg['wavelength_file']) # ONLY MAKE MASTER ONCE
     mask_sci, mask_cal = load_master_mask(sci_file=cfg['mask_sci'], cal_file=cfg['mask_cal'])
     
     # RUN through all files and orders
-    parallelize='joblib' # joblib seems to do best!
-    if parallelize == 'no':
+    parallelize=True # joblib seems to do best!
+    if not parallelize:
         rvs = np.zeros((len(files), len(cfg['orders_to_run'])))
         rvs_cal = np.zeros((len(files), len(cfg['orders_to_run'])))
         for i, file in enumerate(files):
             rvs[i], rvs_cal[i] = run_ccf(file, mask_sci, mask_cal, iorder=43,wavelength_file=cfg['wavelength_file'])
-    elif parallelize == 'pool':
-        rvs = np.zeros((len(files), len(cfg['orders_to_run'])))
-        rvs_cal = np.zeros((len(files), len(cfg['orders_to_run'])))
-
-        from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_completed
-        for ifile, file in enumerate(files):
-            print(ifile)
-            # Use ProcessPoolExecutor instead if run_ccf is CPU-bound (pure Python/numpy)
-            #with ThreadPoolExecutor() as executor:
-            with ProcessPoolExecutor() as executor:
-                futures = {executor.submit(run_ccf, file, mask_sci, mask_cal, iorder=iorder,wavelength_file=cfg['wavelength_file']): i 
-                        for i, iorder in enumerate(cfg['orders_to_run'])}
-                
-                for future in as_completed(futures):
-                    i = futures[future]
-                    rvs[ifile,i], rvs_cal[ifile,i] = future.result()
-    elif parallelize =='joblib':
+    else:
         from joblib import Parallel, delayed
         from tqdm import tqdm
         if nfiles==0: pass
