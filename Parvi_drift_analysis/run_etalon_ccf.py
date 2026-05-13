@@ -15,7 +15,7 @@ warnings.filterwarnings('ignore', message='Mean of empty slice', category=Runtim
 
 ##############
 # RUN SETTINGS
-DATETAG_default = '2026050*' #datetime.now(timezone.utc).strftime("%Y%m%d")
+DATETAG_default = '20260512' #datetime.now(timezone.utc).strftime("%Y%m%d")
 
 CONFIGS = {
     'blue': {
@@ -40,6 +40,17 @@ CONFIGS = {
         'output': 'outputs',
         'orders_to_run': np.arange(23,43)
     },
+    'minicomb': {
+        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_minicomb_data/spectra/',
+        'mask_sci':   'parvi_minicomb_ccf_mask_sci.csv',
+        'mask_cal':   'parvi_minicomb_ccf_mask_cal.csv',
+        'rv_csv':     'running_minicomb_rvs.csv',
+        'orders_csv': 'running_minicomb_rvs_byorder.csv',
+        'label':      'Minicomb - Parvi Etalon',
+        'wavelength_file': '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/Altair_R02_20251017031228_deg0_sp.fits',
+        'output': 'outputs',
+        'orders_to_run': np.arange(10,44)
+    }
 }
 ##############
 
@@ -92,8 +103,13 @@ def plot_summary(all_rv_filename, orders_to_run, label='HISPEC Etalon', color='r
     hispec_offset = np.nanmean(rv_sci_all)
     parvi_offset  = np.nanmean(rv_cal_all)
 
-    fig, [ax1,ax2] = plt.subplots(2,1 , figsize=(10, 6), num='nightly_summary')
-    ax1.plot(mjd_all, 1000*(rv_sci_all - hispec_offset), 'o', c=color, markeredgecolor=color, alpha=0.8, label=label)
+    if color=='minicomb':
+        colorname = 'green'
+    else:
+        colorname = color
+
+    fig, [ax1,ax2] = plt.subplots(2,1 , figsize=(10, 6), num='nightly_summary', sharex=True)
+    ax1.plot(mjd_all, 1000*(rv_sci_all - hispec_offset), 'o', c=colorname, markeredgecolor=colorname, alpha=0.8, label=label)
     ax1.plot(mjd_all, 1000*(rv_cal_all - parvi_offset),  '^', c='purple',    markeredgecolor='black',     alpha=0.8, label='PARVI Etalon')
     ax1.set_xlabel('MJD [days]')
     ax1.set_ylabel('RV [m/s]')
@@ -111,7 +127,7 @@ def plot_summary(all_rv_filename, orders_to_run, label='HISPEC Etalon', color='r
     rv_binned = np.array([np.nanmean(rv_diff[bin_idx == b])    for b in bin_ids])
 
     ax2.plot(mjd_all, rv_diff, 'ko', alpha=0.2)
-    ax2.plot(t_binned, rv_binned, 's', c=color, markeredgecolor='black', ms=6, label=f'{time_avg}-min bin')
+    ax2.plot(t_binned, rv_binned, 's', c=colorname, markeredgecolor='black', ms=6, label=f'{time_avg}-min bin')
     ax2.set_xlabel('MJD [days]')
     ax2.set_ylabel('HISPEC - PARVI [m/s]')
     ax2.legend()
@@ -119,6 +135,7 @@ def plot_summary(all_rv_filename, orders_to_run, label='HISPEC Etalon', color='r
     fig.tight_layout()
     fig.savefig(all_rv_filename.replace('csv', 'png'))
 
+    return ax1, ax2
 
 def plot_orders(all_rvorders_filename, orders_to_run, color='red', output_dir='.'):
     """Load per-order CSV and plot order-to-order, order test, slopes, and differential RV."""
@@ -181,7 +198,7 @@ if __name__=='__main__':
     # pick date to run!
     parser = argparse.ArgumentParser()
     parser.add_argument('--datetag', default=DATETAG_default)
-    parser.add_argument('--color', default='red', choices=['blue', 'red'])
+    parser.add_argument('--color', default='minicomb', choices=['blue', 'red', 'minicomb'])
     args = parser.parse_args()
     DATETAG = args.datetag
     cfg = CONFIGS[args.color]
@@ -191,12 +208,12 @@ if __name__=='__main__':
         raise ValueError('blue etalon was before 20260501, red etalon was after')
     
     # glob all files and select which ones want to include here
-    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))
+    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))[0:5]
     nfiles = len(files)
     print(f'Loaded {nfiles} files for date {DATETAG} for the {args.color} etalon')
 
     # make/LOAD MASK for etalon - parvi etalon file type
-    make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True, file_tag=cfg['mask_sci'].strip('_sci.csv'), wavelength_file=cfg['wavelength_file']) # ONLY MAKE MASTER ONCE
+    #make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True, file_tag=cfg['mask_sci'].strip('_sci.csv'), wavelength_file=cfg['wavelength_file']) # ONLY MAKE MASTER ONCE
     mask_sci, mask_cal = load_master_mask(sci_file=cfg['mask_sci'], cal_file=cfg['mask_cal'])
     
     # RUN through all files and orders
@@ -233,6 +250,14 @@ if __name__=='__main__':
 
     # LOAD FROM FILES AND UPDATE PLOTS
     if nfiles > 1:
-        plot_summary(all_rv_filename, cfg['orders_to_run'], label=cfg['label'], color=args.color,output_dir=cfg['output'])
+        ax1, ax2 = plot_summary(all_rv_filename, cfg['orders_to_run'], label=cfg['label'], color=args.color,output_dir=cfg['output'])
         plot_orders(all_rvorders_filename, cfg['orders_to_run'], color=args.color,output_dir=cfg['output'])
 
+    # overplot onewire data
+    #ow_time, ow_temp = np.loadtxt('/Users/ashleybaker/Documents/HISPEC/AIT/ELEC_RackCoolingTest/onewire_red_etalon/CAL Red Rack OneWire Temperature-data-2026-05-11 18_10_23.csv', delimiter=',', skiprows=3).T
+    #from astropy.time import Time
+    #t = Time(ow_time / 1000, format='unix').mjd
+    #ax3 = ax1.twinx()
+    #ax4 = ax2.twinx()
+    #ax3.plot(t, ow_temp)
+    #ax4.plot(t, ow_temp)

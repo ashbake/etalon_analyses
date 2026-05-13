@@ -16,7 +16,7 @@ warnings.filterwarnings('ignore', message='Mean of empty slice', category=Runtim
 # data from 12/15 wasn't extracted correctly post warmup - not sure why
 ##############
 # RUN SETTINGS
-DATETAG_default = '20251215' #datetime.now(timezone.utc).strftime("%Y%m%d")
+DATETAG_default = '20260512' #datetime.now(timezone.utc).strftime("%Y%m%d")
 
 CONFIGS = {
     'blue': {
@@ -31,7 +31,7 @@ CONFIGS = {
         'orders_to_run': np.arange(10,44)
     },
     'red': {
-        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/EtalonEtalon/spectra/',
+        'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_minicomb_data/spectra/',
         'mask_sci':   'parvi_minicomb_ccf_mask_sci.csv',
         'mask_cal':   'parvi_minicomb_ccf_mask_cal.csv',
         'rv_csv':     'running_minicomb_rvs.csv',
@@ -39,8 +39,11 @@ CONFIGS = {
         'label':      'Minicomb - Parvi Etalon',
         'wavelength_file': '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/Altair_R02_20251017031228_deg0_sp.fits',
         'output': 'outputs',
-        'orders_to_run': np.arange(28,30)
+        'orders_to_run': np.arange(10,44)
     },
+    'minicomb': {
+
+    }
 }
 ##############
 
@@ -92,7 +95,7 @@ def plot_summary(all_rv_filename, orders_to_run, label='HISPEC Etalon', color='r
     hispec_offset = np.nanmean(rv_sci_all)
     parvi_offset  = np.nanmean(rv_cal_all)
 
-    fig, [ax1,ax2] = plt.subplots(2,1 , figsize=(10, 6), num='nightly_summary')
+    fig, [ax1,ax2] = plt.subplots(2,1 , figsize=(10, 6), num='nightly_summary', sharex=True)
     ax1.plot(mjd_all, 1000*(rv_sci_all - hispec_offset), 'o', c=color, markeredgecolor=color, alpha=0.8, label=label)
     ax1.plot(mjd_all, 1000*(rv_cal_all - parvi_offset),  '^', c='purple',    markeredgecolor='black',     alpha=0.8, label='PARVI Etalon')
     ax1.set_xlabel('MJD [days]')
@@ -180,7 +183,7 @@ if __name__=='__main__':
     # pick date to run!
     parser = argparse.ArgumentParser()
     parser.add_argument('--datetag', default=DATETAG_default)
-    parser.add_argument('--color', default='blue', choices=['blue', 'red'])
+    parser.add_argument('--color', default='red', choices=['blue', 'red'])
     args = parser.parse_args()
     DATETAG = args.datetag
     cfg = CONFIGS[args.color]
@@ -195,7 +198,7 @@ if __name__=='__main__':
     print(f'Loaded {nfiles} files for date {DATETAG} for the {args.color} etalon')
 
     # make/LOAD MASK for etalon - parvi etalon file type
-    make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True, file_tag=cfg['mask_sci'].strip('_sci.csv'), wavelength_file=cfg['wavelength_file']) # ONLY MAKE MASTER ONCE
+    #make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True, file_tag=cfg['mask_sci'].strip('_sci.csv'), wavelength_file=cfg['wavelength_file']) # ONLY MAKE MASTER ONCE
     mask_sci, mask_cal = load_master_mask(sci_file=cfg['mask_sci'], cal_file=cfg['mask_cal'])
     
     # RUN through all files and orders
