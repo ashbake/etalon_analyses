@@ -11,17 +11,28 @@ from parvi_ccf_tools import *
 warnings.filterwarnings('ignore', message='All-NaN slice encountered', category=RuntimeWarning)
 warnings.filterwarnings('ignore', message='Mean of empty slice', category=RuntimeWarning)
 
-# description of parvi data
+# RUN SETTINGS
+DATETAG_default = '20260616' #datetime.now(timezone.utc).strftime("%Y%m%d")
+
+# pick date to run!
+parser = argparse.ArgumentParser()
+parser.add_argument('--datetag', default=DATETAG_default)
+parser.add_argument('--color', default='red', choices=['blue', 'red', 'minicomb'])
+args = parser.parse_args()
+DATETAG = args.datetag
+
+if (args.color == 'blue') and DATETAG.startswith('202605'):
+    raise ValueError('blue etalon was before 20260501, red etalon was after. week of june 10th-14th was hispec v hispec called bluered tag')
+
+
 
 ##############
-# RUN SETTINGS
-DATETAG_default = '20260512' #datetime.now(timezone.utc).strftime("%Y%m%d")
 
 CONFIGS = {
     'blue': {
         'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_blueEtalon_data/EtalonEtalon/spectra/',
-        'mask_sci':   'parvi_blueetalon_ccf_mask_sci.csv',
-        'mask_cal':   'parvi_blueetalon_ccf_mask_cal.csv',
+        'mask_sci':   './masks/parvi_blueetalon_ccf_mask_sci.csv',
+        'mask_cal':   './masks/parvi_blueetalon_ccf_mask_cal.csv',
         'rv_csv':     'running_blueetalon_rvs.csv',
         'orders_csv': 'running_blueetalon_rvs_byorder.csv',
         'label':      'HISPEC Blue Etalon',
@@ -31,8 +42,8 @@ CONFIGS = {
     },
     'red': {
         'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/EtalonEtalon/spectra/',
-        'mask_sci':   'parvi_redetalon_ccf_mask_sci.csv',
-        'mask_cal':   'parvi_redetalon_ccf_mask_cal.csv',
+        'mask_sci':   './masks/parvi_redetalon_ccf_mask_sci.csv',
+        'mask_cal':   './masks/parvi_redetalon_ccf_mask_cal.csv',
         'rv_csv':     'running_redetalon_rvs.csv',
         'orders_csv': 'running_redetalon_rvs_byorder.csv',
         'label':      'HISPEC Red Etalon',
@@ -42,16 +53,20 @@ CONFIGS = {
     },
     'minicomb': {
         'datapath':   '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_minicomb_data/spectra/',
-        'mask_sci':   'parvi_minicomb_ccf_mask_sci.csv',
-        'mask_cal':   'parvi_minicomb_ccf_mask_cal.csv',
+        'mask_sci':   './masks/parvi_minicomb_ccf_mask_sci.csv',
+        'mask_cal':   './masks/parvi_minicomb_ccf_mask_cal.csv',
         'rv_csv':     'running_minicomb_rvs.csv',
         'orders_csv': 'running_minicomb_rvs_byorder.csv',
-        'label':      'Minicomb - Parvi Etalon',
+        'label':      'MiniComb',
         'wavelength_file': '/Users/ashleybaker/Documents/HISPEC/AIT/CAL_LabData/Etalon_analyses/Parvi_drift_analysis/PARVI_redEtalon_data/Altair_R02_20251017031228_deg0_sp.fits',
         'output': 'outputs',
         'orders_to_run': np.arange(10,44)
     }
 }
+cfg = CONFIGS[args.color]
+os.makedirs(cfg['output'], exist_ok=True)
+
+
 ##############
 
 
@@ -195,20 +210,8 @@ def plot_orders(all_rvorders_filename, orders_to_run, color='red', output_dir='.
 
 
 if __name__=='__main__':
-    # pick date to run!
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--datetag', default=DATETAG_default)
-    parser.add_argument('--color', default='minicomb', choices=['blue', 'red', 'minicomb'])
-    args = parser.parse_args()
-    DATETAG = args.datetag
-    cfg = CONFIGS[args.color]
-    os.makedirs(cfg['output'], exist_ok=True)
-
-    if (args.color == 'blue') and DATETAG.startswith('202605'):
-        raise ValueError('blue etalon was before 20260501, red etalon was after')
-    
     # glob all files and select which ones want to include here
-    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))[0:5]
+    files = np.sort(glob.glob(cfg['datapath'] + f'*{DATETAG}*fits'))[0:20]
     nfiles = len(files)
     print(f'Loaded {nfiles} files for date {DATETAG} for the {args.color} etalon')
 

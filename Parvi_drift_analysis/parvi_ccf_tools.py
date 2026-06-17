@@ -121,8 +121,9 @@ def make_master_mask(files, save_to_file=True, diagnostics_on=False, file_tag='p
                 weights_cal[np.isnan(weights_cal)] = 0
                 all_weights_cal[iorder] = weights_cal
                 # save to file
-                for i in np.arange(len(ipeaks_cal)):
-                    fcal.write(f'{iorder},{all_cens_cal[iorder][i]},{all_weights_cal[iorder][i]}\n')
+                if save_to_file:
+                    for i in np.arange(len(ipeaks_cal)):
+                        fcal.write(f'{iorder},{all_cens_cal[iorder][i]},{all_weights_cal[iorder][i]}\n')
 
     # plot if need to diagnose peak finding issue
     if diagnostics_on:
