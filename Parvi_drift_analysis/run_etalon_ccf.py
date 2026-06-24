@@ -70,11 +70,19 @@ os.makedirs(cfg['output'], exist_ok=True)
 ##############
 
 
+def _run_job(filename, mask_sci, mask_cal, iorder, wavelength_file):
+    """Load sci and cal from a file and run CCF for each on a single order."""
+    sci, cal = load_parvi_data(filename)
+    w_sci, w_cal = load_wavelength_array(wavelength_file)
+    rv_sci = run_ccf_order(w_sci, sci[1], mask_sci, iorder)
+    rv_cal = run_ccf_order(w_cal, cal[1], mask_cal, iorder)
+    return rv_sci, rv_cal
+
+
 def save_rv_results(filename, rvs, rvs_cal, outfile='running_etalon_rvs.csv'):
     """Append (or create) a CSV row: filename, JD, mean RV sci, mean RV cal."""
     hdr = fits.getheader(filename)
     mjd = hdr['TIMEWMJD']
-
 
     rv_mean     = np.nanmean(rvs)
     rv_cal_mean = np.nanmean(rvs_cal)
@@ -201,7 +209,6 @@ def plot_orders(all_rvorders_filename, orders_to_run, color='red', output_dir='.
     plt.figure('order_slopes')
     slope_orders, slopes = zip(*order_slopes)
     plt.scatter(slope_orders, slopes, color=rainbow)
-    #plt.plot(np.array(slope_orders), np.array(slopes), color=rainbow)
     plt.xlabel('Order index')
     plt.ylabel('Slope')
     plt.title('Per-order slope of RV residual vs. mean RV')
@@ -216,16 +223,26 @@ if __name__=='__main__':
     print(f'Loaded {nfiles} files for date {DATETAG} for the {args.color} etalon')
 
     # make/LOAD MASK for etalon - parvi etalon file type
-    #make_master_mask(files[0:50], save_to_file=True, diagnostics_on=True, file_tag=cfg['mask_sci'].strip('_sci.csv'), wavelength_file=cfg['wavelength_file']) # ONLY MAKE MASTER ONCE
-    mask_sci, mask_cal = load_master_mask(sci_file=cfg['mask_sci'], cal_file=cfg['mask_cal'])
-    
+    # ONLY MAKE MASTER ONCE — build separate masters for sci and cal, then make each mask
+    # w_sci, w_cal = load_wavelength_array(cfg['wavelength_file'])
+    # sci_master = build_master_flux(files[0:50], channel='sci')
+    # cal_master = build_master_flux(files[0:50], channel='cal')
+    # make_mask(sci_master, w_sci, save_to_file=True, file_tag=cfg['mask_sci'])
+    # make_mask(cal_master, w_cal, save_to_file=True, file_tag=cfg['mask_cal'])
+    mask_sci = load_mask(cfg['mask_sci'])
+    mask_cal = load_mask(cfg['mask_cal'])
+
     # RUN through all files and orders
     parallelize=True # joblib seems to do best!
     if not parallelize:
         rvs = np.zeros((len(files), len(cfg['orders_to_run'])))
         rvs_cal = np.zeros((len(files), len(cfg['orders_to_run'])))
+        w_sci, w_cal = load_wavelength_array(cfg['wavelength_file'])
         for i, file in enumerate(files):
-            rvs[i], rvs_cal[i] = run_ccf(file, mask_sci, mask_cal, iorder=43,wavelength_file=cfg['wavelength_file'])
+            sci, cal = load_parvi_data(file)
+            for j, iorder in enumerate(cfg['orders_to_run']):
+                rvs[i, j]     = run_ccf_order(w_sci, sci[1], mask_sci, iorder)
+                rvs_cal[i, j] = run_ccf_order(w_cal, cal[1], mask_cal, iorder)
     else:
         from joblib import Parallel, delayed
         from tqdm import tqdm
@@ -233,16 +250,16 @@ if __name__=='__main__':
         jobs = [
             (file, iorder)
             for file in files
-            for iorder in cfg['orders_to_run']   
+            for iorder in cfg['orders_to_run']
         ]
 
         results = Parallel(n_jobs=10)(
-            delayed(run_ccf)(file, mask_sci, mask_cal, iorder=iorder,wavelength_file=cfg['wavelength_file'])
+            delayed(_run_job)(file, mask_sci, mask_cal, iorder, cfg['wavelength_file'])
             for file, iorder in tqdm(jobs, desc="CCF", total=len(jobs))
         )
 
-        # Reshape results into (n_iorders, n_files)
-        results = np.array(results).reshape( len(files),len(cfg['orders_to_run']), 2)
+        # Reshape results into (n_files, n_orders, 2)
+        results = np.array(results).reshape(len(files), len(cfg['orders_to_run']), 2)
         rvs     = results[:, :, 0]  # shape: (n_files, n_iorders)
         rvs_cal = results[:, :, 1]
 

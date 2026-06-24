@@ -19,7 +19,6 @@ def load_parvi_data(filename):
     6-  Error of corresponding fiber flat
     etalon is in extension 4, science in extension 2
     """
-    # load single fits data
     f = fits.open(filename)
     science_extension = 2 # ch3?
     cal_extension = 4 # ch1?
@@ -34,164 +33,111 @@ def load_parvi_data(filename):
 
     return [wave_sci, flux_sci, err_sci], [wave_cal, flux_cal, err_cal]
 
-def load_wavelength_array(filename = '/Altair_R02_20251017031228_deg0_sp.fits'):
+def load_wavelength_array(filename='/Altair_R02_20251017031228_deg0_sp.fits'):
     """loads old altair file to get old wavelength solution which shouldn't need to be accurate here
-    because parvi data doesn't always ahve wavelengths stored (TODO to fix this)"""
-    #filename = '/Users/ashleybaker/Documents/DLC/_data/Altair/Altair_R02_20251017031228_deg0_sp.fits'
+    because parvi data doesn't always have wavelengths stored (TODO to fix this)"""
     test_sci, test_cal = load_parvi_data(filename)
+    return test_sci[0], test_cal[0]
 
-    waves_sci = test_sci[0]
-    waves_cal = test_cal[0]
+def build_master_flux(files, channel):
+    """Stack and average flux arrays from a list of files for one channel.
 
-    return waves_sci, waves_cal
-
-def make_master_mask(files, save_to_file=True, diagnostics_on=False, file_tag='parvi_blueetalon_ccf_mask', wavelength_file='/Altair_R02_20251017031228_deg0_sp.fits'):
-    """ Make mask for etalon for each order and optionally save to file
-
-    input:
-    -----
-    files - np.array
-        list of files to include in mask
-    
+    channel: 'sci' or 'cal'
+    Returns master_flux (norders x npix)
     """
-    sci, cal = load_parvi_data(files[0])
-
-    # Make master file
-    sci_master, cal_master = np.zeros_like(sci[1]), np.zeros_like(cal[1])
+    ext = {'sci': 2, 'cal': 4}[channel]
+    master = None
     for file in files:
-        sci, cal = load_parvi_data(file)
-        sci_master += sci[1]
-        cal_master += cal[1]
+        flux = fits.open(file)[ext].data[1, :, :]
+        if master is None:
+            master = np.zeros_like(flux)
+        master += flux
+    return master / len(files)
 
-    sci_master/= len(files)
-    cal_master/= len(files)
 
-    nfiles = len(files)
-    norders, npix = np.shape(sci_master)
+def make_mask(master_flux, wave, save_to_file=True, file_tag='mask.csv', diagnostics_on=False):
+    """Make CCF mask from a single master spectrum.
 
-    # load wavelength
-    w_sci, w_cal = load_wavelength_array(wavelength_file)
-    
-    # Peak finder time
+    master_flux: 2D array (norders x npix)
+    wave:        2D array (norders x npix)
+    file_tag:    output filename (used if save_to_file=True)
+    Returns all_cens, all_weights, mask_file
+    """
     from scipy.signal import find_peaks
-    
+
+    norders, npix = np.shape(master_flux)
+    mask_file = file_tag if save_to_file else None
+    norm_factor = 100000  # so weights are between 0 and 1 for easier reading
+
     if save_to_file:
-        cal_file = file_tag + '_cal.csv'
-        sci_file = file_tag + '_sci.csv'
-    else:
-        cal_file, sci_file = None, None
+        f = open(mask_file, 'w')
 
-    if save_to_file:  fcal = open(cal_file, 'w')
-    if save_to_file:  fsci = open(sci_file, 'w')
     all_cens = {}
-    all_weights={}
-    all_cens_cal = {}
-    all_weights_cal ={}
-    norm_factor=100000 # so weights are between 0 and 1 for easier reading
-    for iorder in np.arange(norders):
-        if iorder==0: # for some reason order 0 doesnt have wave vals
-            continue
-        # these peaking finding params were optimized
-        ipeaks, _ = find_peaks(sci_master[iorder], prominence=10*np.nanmedian(sci_master[iorder]), width=3, distance=10)
-        ipeaks_cal, _ = find_peaks(cal_master[iorder], prominence=10*np.nanmedian(cal_master[iorder]), width=3, distance=10)
+    all_weights = {}
 
-        # skip this order if mean of peaks is <SNR=100
-        # Else save the centers and weights
+    for iorder in np.arange(norders):
+        if iorder == 0:  # order 0 doesn't have wave vals
+            continue
+        ipeaks, _ = find_peaks(master_flux[iorder], prominence=10 * np.nanmedian(master_flux[iorder]), width=3, distance=10)
+
         if len(ipeaks) > 0:
-            if np.nanmedian(np.sqrt(sci_master[iorder][ipeaks])) < 100:
-                all_cens[iorder]    = []
+            if np.nanmedian(np.sqrt(master_flux[iorder][ipeaks])) < 100:
+                all_cens[iorder] = []
                 all_weights[iorder] = []
             else:
-                # save to dictionaries for each iorder
-                all_cens[iorder]    = w_sci[iorder][ipeaks]
-                weights = np.sqrt(np.maximum(sci_master[iorder][ipeaks], 0) / norm_factor)
+                all_cens[iorder] = wave[iorder][ipeaks]
+                weights = np.sqrt(np.maximum(master_flux[iorder][ipeaks], 0) / norm_factor)
                 weights[np.isnan(weights)] = 0
                 all_weights[iorder] = weights
                 if save_to_file:
                     for i in np.arange(len(ipeaks)):
-                        fsci.write(f'{iorder},{all_cens[iorder][i]},{all_weights[iorder][i]}\n')
+                        f.write(f'{iorder},{all_cens[iorder][i]},{all_weights[iorder][i]}\n')
 
-        if len(ipeaks_cal) > 0:
-            if np.nanmedian(np.sqrt(cal_master[iorder][ipeaks_cal])) < 100:
-                all_cens_cal[iorder]    = []
-                all_weights_cal[iorder] = []
-            else:
-                all_cens_cal[iorder]    = w_cal[iorder][ipeaks_cal]
-                weights_cal = np.sqrt(np.maximum(cal_master[iorder][ipeaks_cal], 0) / norm_factor)
-                weights_cal[np.isnan(weights_cal)] = 0
-                all_weights_cal[iorder] = weights_cal
-                # save to file
-                if save_to_file:
-                    for i in np.arange(len(ipeaks_cal)):
-                        fcal.write(f'{iorder},{all_cens_cal[iorder][i]},{all_weights_cal[iorder][i]}\n')
-
-    # plot if need to diagnose peak finding issue
     if diagnostics_on:
         plt.figure()
-        plt.plot(w_sci[iorder], sci_master[iorder])
-        plt.plot(w_sci[iorder][ipeaks], sci_master[iorder][ipeaks],'o')
-        plt.plot(w_cal[iorder], cal_master[iorder])
-        plt.plot(w_cal[iorder][ipeaks_cal], cal_master[iorder][ipeaks_cal],'o')
+        plt.plot(wave[iorder], master_flux[iorder])
+        plt.plot(wave[iorder][ipeaks], master_flux[iorder][ipeaks], 'o')
         plt.title(f'Order {iorder}')
 
-    if save_to_file: fsci.close(), fcal.close()
+    if save_to_file:
+        f.close()
 
-    return all_cens, all_weights, all_cens_cal, all_weights_cal, cal_file, sci_file
+    return all_cens, all_weights, mask_file
 
-def load_master_mask(sci_file='parvi_blueetalon_ccf_mask_sci.csv', cal_file='parvi_blueetalon_ccf_mask_cal.csv'):
-    """loads mask files (hardcoded filenames)
-    
-    returns 
-    --------
-    pandas array of sci and cal masks, respectively
-        Each pd array has 'order', 'cen', 'weight' columns
-     """
+def load_mask(mask_file):
+    """Load a single mask CSV. Returns pandas df with order, cen, weight."""
     import pandas as pd
+    return pd.read_csv(mask_file, names=['order', 'cen', 'weight'])
 
-    mask_sci = pd.read_csv(sci_file, names=['order','cen','weight'])
-    mask_cal = pd.read_csv(cal_file, names=['order','cen','weight'])
 
-    return mask_sci, mask_cal
+def run_ccf_order(wave, flux, mask, iorder, R=70000, nsamp=3):
+    """Run CCF for a single order of a general spectrum.
 
-def run_ccf(filename, mask_sci, mask_cal, iorder=10, wavelength_file='/Altair_R02_20251017031228_deg0_sp.fits'):
-    # load file and wave array
-    sci, cal = load_parvi_data(filename) # each is indexed wave, flux, err
-    w_sci, w_cal = load_wavelength_array(wavelength_file)
+    wave, flux: 2D arrays (norders x npix)
+    mask:       pandas df with order, cen, weight columns
+    Returns rv_fit (float, km/s)
+    """
+    SPEEDOFLIGHT = 299792.458  # km/s
+    mask_wid = (SPEEDOFLIGHT / R) / nsamp
+    velocity_loop = np.arange(-20, 20, mask_wid / 4)
 
-    # define mask parameters
-    R = 700000
-    nsamp=3
-    SPEEDOFLIGHT = 299792.458 # km/s
-    mask_wid  = (SPEEDOFLIGHT / R) / nsamp #velocity_per_pix
-    velocity_loop = np.arange(-20, 20, mask_wid/4)
+    mask_order = mask[mask['order'] == iorder]
+    if len(mask_order['cen'].values) <= 2:
+        return np.nan
 
-    # select order from the mask
-    mask_sci_order = mask_sci[mask_sci['order'] == iorder]
-    mask_cal_order = mask_cal[mask_cal['order'] == iorder]
+    try:
+        ccf_out, _ = ccf.ccf_make(
+            wave[iorder], flux[iorder],
+            mask_order['cen'].values, mask_wid * 10,
+            mask_order['weight'].values, velocity_loop,
+            R=R, nsamp=nsamp
+        )
+        rv_fit, _, _, _ = ccf.fit_gaussian_to_ccf_2(
+            velocity_loop, 1 - ccf_out / np.max(ccf_out),
+            0.1, velocity_halfrange_to_fit=5.0, stddev_guess=1
+        )
+    except:
+        rv_fit = np.nan
+        print(f'error in CCF for order {iorder}')
 
-    # create ccf for that order
-    if len(mask_sci_order['cen'].values) > 2:
-        try:
-            ccf_out_sci, _ = ccf.ccf_make(w_sci[iorder], sci[1][iorder], mask_sci_order['cen'].values, mask_wid*10,  mask_sci_order['weight'].values, velocity_loop, R=R,nsamp=nsamp)
-            rv_fit_sci, v_fit, y_fit, xi2 = ccf.fit_gaussian_to_ccf_2(velocity_loop, 1 - ccf_out_sci/np.max(ccf_out_sci), 0.1, velocity_halfrange_to_fit=5.0,stddev_guess=1)
-        except:
-            rv_fit_sci = np.nan
-            print(f'error in CCF of sci for order {iorder}')
-    else:
-        rv_fit_sci = np.nan
-        #print(f'no mask for sci in order {iorder}')
-
-    # CAL  
-    if len(mask_cal_order['cen'].values) > 2:
-        try:
-            ccf_out_cal, _ = ccf.ccf_make(w_cal[iorder], cal[1][iorder], mask_cal_order['cen'].values, mask_wid*10,  mask_cal_order['weight'].values, velocity_loop, R=R,nsamp=nsamp)
-            rv_fit_cal, _, _, _ = ccf.fit_gaussian_to_ccf_2(velocity_loop, 1 - ccf_out_cal/np.max(ccf_out_cal), 0.1, velocity_halfrange_to_fit=5.0,stddev_guess=1)
-        except:
-            rv_fit_cal = np.nan
-            print(f'error in CCF of cal for order {iorder}')
-    else:
-        rv_fit_cal = np.nan
-        #print(f'no mask for cal in order {iorder}')
-
-    return rv_fit_sci, rv_fit_cal
-
+    return rv_fit
